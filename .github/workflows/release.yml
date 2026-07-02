@@ -1,0 +1,86 @@
+name: Release to PyPI
+
+# Publishes scrufflehog to PyPI when a GitHub Release is published, using PyPI
+# Trusted Publishing (OIDC): the job mints a short-lived OpenID Connect token
+# that PyPI exchanges for upload rights. No API token is stored in the repo or
+# in Actions secrets.
+#
+# One-time PyPI setup (pending publisher, since the project doesn't exist yet):
+#   PyPI -> Your projects -> Publishing -> Add a pending publisher
+#     PyPI project name: scrufflehog
+#     Owner:             seanturner83
+#     Repository:        scrufflehog
+#     Workflow filename: release.yml
+#     Environment:       pypi
+# The first successful run creates the project and claims the name.
+
+on:
+  release:
+    types: [published]
+  # Manual trigger for re-runs / dry checks (still gated on the pypi environment).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build sdist + wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: Check metadata
+        run: |
+          python -m pip install --upgrade twine
+          twine check dist/*
+
+      - name: Verify tag matches package version
+        if: github.event_name == 'release'
+        run: |
+          # Release tag is v<version>; the built wheel must match, or we'd
+          # publish a version that disagrees with the tag people pinned.
+          tag="${GITHUB_REF_NAME#v}"
+          whl=$(ls dist/*.whl | head -1)
+          pkg_ver=$(basename "$whl" | sed -E 's/^scrufflehog-([^-]+)-.*/\1/')
+          echo "tag=$tag  wheel=$pkg_ver"
+          if [ "$tag" != "$pkg_ver" ]; then
+            echo "::error::release tag ($tag) != package version ($pkg_ver) — bump pyproject.toml or fix the tag"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    # The pypi environment is the second gate: Trusted Publishing on PyPI is
+    # scoped to this environment name, and it can carry a required-reviewer
+    # protection rule so a human approves each real publish.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/scrufflehog
+    permissions:
+      id-token: write   # OIDC token for Trusted Publishing — the only privilege needed
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # No `with: password:` — auth is the OIDC identity of this job.

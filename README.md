@@ -40,6 +40,14 @@ pino/`fast-redact` path lists, Rust sets).
 
 ## Install
 
+Latest from source (works today):
+
+```bash
+pip install git+https://github.com/seanturner83/scrufflehog
+```
+
+Once the first release is published, from PyPI:
+
 ```bash
 pip install scrufflehog
 ```
