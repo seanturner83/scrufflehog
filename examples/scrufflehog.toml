@@ -1,0 +1,53 @@
+# Example scrufflehog config. Point module paths at your redactors (relative to
+# the --target checkout). Delete the languages you don't use.
+
+# --- transform-strength: execute the redactor on probes ---------------------
+
+[[transform]]
+lang = "python"
+module = "app/redact.py"
+fn = "redact_value"        # def redact_value(s: str) -> str
+kind = "value"
+probe_set = "value"        # "value" (any sensitive value) | "url_apikey" (URL-scoped)
+
+[[transform]]
+lang = "go"
+module = "internal/logredact"
+import = "github.com/example/app/internal/logredact"
+fn = "Sanitize"            # func Sanitize(s string) string
+kind = "value"
+# wrap = "error"           # set if the fn takes an error, not a string
+
+[[transform]]
+lang = "node"
+module = "dist/redact.js"
+fn = "redactValue"         # module.exports.redactValue = (s) => ...
+kind = "value"
+# export = "default"       # set if module.exports IS the fn
+
+[[transform]]
+lang = "rust"
+module = "."               # crate root (Cargo.toml dir)
+call = "app::redact::mask(&line)"
+
+# --- coverage: static field-list check (no execution) -----------------------
+
+[[coverage]]
+module = "app/redact.py"
+symbol = "SECRET_FIELDS"   # a Python list/tuple/set of field names
+extract = "py_collection"
+match = "exact_ci"
+# corpus = ["ssn", "cvv", "iban"]   # optional; omit to use the built-in list
+
+[[coverage]]
+module = "internal/logredact/keys.go"
+symbol = "SecretKeys"      # var SecretKeys = map[string]struct{}{ "password": {}, ... }
+extract = "go_map_keys"
+match = "exact_ci"
+doc_claims_substring = false
+
+[[coverage]]
+module = "src/logger.ts"
+symbol = "redact"          # pino redact: { paths: [ ... ] } or redact: [ ... ]
+extract = "ts_redact_paths"
+match = "exact_ci"
