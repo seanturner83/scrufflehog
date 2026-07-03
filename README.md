@@ -86,6 +86,42 @@ confirm coverage hypotheses against real field usage — but it only ever suppli
 *inputs and hypotheses*; the deterministic oracle still renders every verdict.
 With no advisor, output is fully reproducible. See `docs/AGENTIC.md`.
 
+### Bring your own model
+
+scrufflehog ships no LLM SDK and talks to no provider by default — you point it
+at *your* model. Set `SCRUFFLEHOG_LLM` to a `module:function` path resolving to a
+`complete(prompt: str) -> str` callable, put it on `PYTHONPATH`, and pass
+`--advisor llm`:
+
+```python
+# my_backend.py  (anywhere on your PYTHONPATH)
+import anthropic
+_client = anthropic.Anthropic()
+
+def complete(prompt: str) -> str:
+    msg = _client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return "".join(b.text for b in msg.content if b.type == "text")
+```
+
+```bash
+export SCRUFFLEHOG_LLM="my_backend:complete"
+export PYTHONPATH="$(dirname my_backend.py):$PYTHONPATH"
+scrufflehog verify --config scrufflehog.toml --target . --advisor llm
+```
+
+Any backend works — OpenAI, Bedrock, Ollama, a local model — as long as it
+exposes `complete(prompt) -> str`. The advisor degrades to the deterministic
+result on any backend error, so a flaky model never fails or corrupts a run.
+
+To let the advisor supply the probe set for a redactor whose input domain the
+generic probes miss (e.g. a URL-scoped redactor), set `probe_set = "advisor"` on
+that transform entry; it falls back to the built-in `value` set when no advisor
+is present.
+
 ## Why "scrufflehog"
 
 trufflehog finds the secrets. scrufflehog scruffs through the code that's
