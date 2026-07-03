@@ -45,21 +45,28 @@ def _sha_prefixes(v: str) -> set[str]:
 
 
 def reversible(output: str, space: list[str]) -> str | None:
-    """Return the recovered plaintext if `output` deterministically encodes a
-    candidate in `space` via a keyless weak transform; else None.
+    """Return the recovered plaintext if `output` contains a keyless weak
+    TRANSFORM of a candidate in `space`; else None.
 
     Transforms probed (all reproducible by an attacker — no salt, no key):
-      - identity / substring
       - truncated or full unsalted SHA-256
       - base64 (padded or not)
+
+    Deliberately NOT plain substring: a candidate appearing verbatim in the
+    output is either the secret itself (already caught by literal_survival) or an
+    INCIDENTAL benign word that happens to be in the candidate space (e.g. a URL
+    scheme like "postgres" surviving in `svc:****@` output). Matching those as
+    "reversible" is a false positive — a weak-transform match (hash/base64) is
+    the actual reversibility signal and can't collide benignly.
+
     Only candidates in `space` are tried, so cost is bounded and we never claim
     a high-entropy value is reversible.
     """
     if not space or not isinstance(output, str):
         return None
     for cand in space:
-        if cand and cand in output:
-            return cand
+        if not cand:
+            continue
         if any(pref in output for pref in _sha_prefixes(cand)):
             return cand
         enc = b64encode(cand.encode()).decode()

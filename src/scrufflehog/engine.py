@@ -79,7 +79,17 @@ def verify_transform(target: Path, entry: dict, advisor: Advisor) -> tuple[list[
         return ([Defect(label, REDACTOR_ERRORED, "-",
                         f"[{lang}] could not prepare redactor: {e}")],
                 f"[transform:{lang}] {label}: unprepared")
-    probes = _transform_probes(target, entry, advisor)
+    try:
+        probes = _transform_probes(target, entry, advisor)
+    except ValueError as e:
+        # e.g. an unknown probe_set in config — a config error must be a
+        # per-redactor finding, never a run-ending crash.
+        cleanup = getattr(produce, "_cleanup", None)
+        if callable(cleanup):
+            cleanup()
+        return ([Defect(label, REDACTOR_ERRORED, "-",
+                        f"invalid probe configuration: {e}")],
+                f"[transform:{lang}] {label}: misconfigured")
     defects: list[Defect] = []
     try:
         for p in probes:

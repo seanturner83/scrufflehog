@@ -34,6 +34,15 @@ def test_reversible_skipped_without_space():
     assert oracles.reversible(out, []) is None
 
 
+def test_reversible_ignores_incidental_candidate_word():
+    """A candidate word appearing VERBATIM in clean output (e.g. a URL scheme
+    'postgres' surviving in svc:****@) is NOT reversibility — only a weak
+    TRANSFORM (hash/base64) counts. Regression: real pip redactor produced
+    'postgres://svc:****@...' and 'postgres' is in the weak space."""
+    clean = "postgres://svc:****@db.example.internal:5432/core"
+    assert oracles.reversible(clean, ["postgres", "test1234"]) is None
+
+
 def test_reversible_catches_base64():
     import base64
     v = "password"
@@ -162,6 +171,17 @@ def test_engine_empty_config_is_noop(tmp_path):
     result = run(tmp_path, {"transform": [], "coverage": []})
     assert result.defects == []
     assert any("nothing to verify" in n for n in result.notes)
+
+
+def test_unknown_probe_set_is_finding_not_crash(tmp_path):
+    """A bad probe_set in config must degrade to a per-redactor finding, never
+    take down the whole run with a traceback."""
+    _write(tmp_path, "r.py", "def redact(s):\n    return '<x>'\n")
+    config = {"transform": [{"lang": "python", "module": "r.py", "fn": "redact",
+                             "kind": "value", "probe_set": "nonexistent"}],
+              "coverage": []}
+    result = run(tmp_path, config)  # must not raise
+    assert any(d.klass == oracles.REDACTOR_ERRORED for d in result.defects)
 
 
 # ---- output ---------------------------------------------------------------
