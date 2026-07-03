@@ -22,6 +22,19 @@ real blind spots (hand-authored probes, unconfirmed coverage hypotheses).
    were hand-written). Generated probes are still run through the deterministic
    oracle; the agent supplies inputs, not verdicts.
 
+   Two modes, chosen per redactor via `probe_set`:
+   - *additive* (default): built-in set PLUS advisor probes. The advisor can
+     only ADD signal; it can't hide a defect. But out-of-domain built-in probes
+     still false-positive.
+   - *replace* (`probe_set = "advisor"`): the advisor SUPPLIES the probe set,
+     so a URL-scoped redactor is tested only with in-domain inputs. Still just
+     choosing inputs, not verdicts. **Fail-safe:** if the advisor yields nothing
+     (no backend / parse failure) it falls back to the generic `value` set — a
+     redactor is never left un-probed and reported "clean" by omission.
+   Verified live: a URL-path redactor false-positives 3× under additive/generic
+   probes, and reports correctly (0 defects) under `probe_set="advisor"` with a
+   real model generating URL-domain probes.
+
 2. **Redactor + field discovery** — scan a repo and PROPOSE the registry
    (redaction fns, denylist symbols, sensitive field names). Human/config
    confirms. Discovery, not judgement.

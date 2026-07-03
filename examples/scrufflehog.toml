@@ -9,6 +9,9 @@ module = "app/redact.py"
 fn = "redact_value"        # def redact_value(s: str) -> str
 kind = "value"
 probe_set = "value"        # "value" (any sensitive value) | "url_apikey" (URL-scoped)
+                           # | "advisor" (let --advisor infer the input domain and
+                           #   SUPPLY the probes; falls back to "value" with no advisor).
+                           #   Use for redactors whose domain the generic probes miss.
 
 [[transform]]
 lang = "go"

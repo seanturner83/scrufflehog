@@ -84,6 +84,35 @@ def test_advisor_can_only_downgrade_coverage_not_invent(tmp_path):
     assert "ssn" not in ref_gaps
 
 
+def test_probe_set_advisor_replace_mode(tmp_path):
+    """probe_set='advisor' REPLACES the generic set with advisor-supplied,
+    domain-matched probes — so a URL-scoped redactor isn't false-positived by
+    out-of-contract bare-value probes."""
+    # A URL-path redactor: correctly redacts a key in a URL, ignores bare values.
+    (tmp_path / "r.py").write_text(
+        "import re\n"
+        "def redact(s):\n"
+        "    return re.sub(r'(/v\\d/)([A-Za-z0-9]+)', r'\\1<x>', s)\n")
+    config = {"transform": [{"lang": "python", "module": "r.py", "fn": "redact",
+                             "kind": "value", "probe_set": "advisor"}], "coverage": []}
+    # advisor supplies a URL-domain probe the redactor handles → clean
+    reply = '[{"name":"u","input":"https://x/v2/SECRET_MARKER","secret":"SECRET_MARKER"}]'
+    result = run(tmp_path, config, LLMAdvisor(_fake(reply)))
+    assert result.defects == []  # no generic-probe false positives
+
+
+def test_probe_set_advisor_failsafe_falls_back(tmp_path):
+    """probe_set='advisor' with an advisor that yields nothing must NOT leave the
+    redactor untested — it falls back to the generic value set (fail-safe)."""
+    (tmp_path / "r.py").write_text("def redact(s):\n    return s\n")  # no-op
+    config = {"transform": [{"lang": "python", "module": "r.py", "fn": "redact",
+                             "kind": "value", "probe_set": "advisor"}], "coverage": []}
+    # NoopAdvisor supplies no probes → fall back to value set → catches the no-op
+    result = run(tmp_path, config, NoopAdvisor())
+    assert any(d.klass in (oracles.LITERAL_SURVIVAL, oracles.NOOP_PASSTHROUGH)
+               for d in result.defects)
+
+
 def test_advisor_added_probes_still_judged_by_oracle(tmp_path):
     """A probe the advisor supplies is run through the redactor + oracle. With a
     no-op redactor, the advisor's URL probe survives verbatim → a real defect,

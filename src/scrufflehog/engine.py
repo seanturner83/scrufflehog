@@ -29,8 +29,20 @@ class RunResult:
 
 
 def _transform_probes(target: Path, entry: dict, advisor: Advisor) -> list[Probe]:
-    probes = get_probe_set(entry.get("probe_set", "value"))
-    # Advisor may ADD domain-matched probes; deterministic set always included.
+    """Assemble the probe set for a redactor.
+
+    probe_set semantics:
+      "advisor" — the advisor SUPPLIES the probe set (replace mode). Use for a
+                  redactor whose input domain is best inferred from its source
+                  (e.g. a URL-scoped redactor, where the generic value probes are
+                  out-of-contract and would false-positive). The advisor is still
+                  only choosing INPUTS, never verdicts — the oracle judges what
+                  runs. If the advisor yields nothing (no backend / parse fail),
+                  we fall back to the built-in "value" set so the redactor is
+                  never left un-probed (fail-safe: never silently skip).
+      other     — additive: the named built-in set PLUS any advisor probes. Safe
+                  default; the advisor can only add signal, never hide a defect.
+    """
     src = ""
     mod = entry.get("module")
     if mod and (target / mod).exists():
@@ -38,6 +50,18 @@ def _transform_probes(target: Path, entry: dict, advisor: Advisor) -> list[Probe
             src = (target / mod).read_text(encoding="utf-8", errors="replace")
         except OSError:
             src = ""
+
+    name = entry.get("probe_set", "value")
+    if name == "advisor":
+        try:
+            supplied = advisor.propose_probes(src, entry)
+        except Exception:  # noqa: BLE001
+            supplied = []
+        # Fail-safe: an advisor that produced nothing must not leave the redactor
+        # untested — fall back to the generic set rather than "clean by omission".
+        return supplied if supplied else get_probe_set("value")
+
+    probes = get_probe_set(name)
     try:
         probes = probes + advisor.propose_probes(src, entry)
     except Exception:  # noqa: BLE001 — advisor failure degrades to deterministic
