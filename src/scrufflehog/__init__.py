@@ -9,6 +9,6 @@ from .oracles import Defect, assert_output, reversible
 from .probes import Probe, get_probe_set
 from .engine import RunResult, run
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = ["Defect", "assert_output", "reversible", "Probe", "get_probe_set",
            "RunResult", "run"]
