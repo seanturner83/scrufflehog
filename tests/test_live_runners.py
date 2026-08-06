@@ -55,6 +55,86 @@ def test_go_noop_redactor_caught(tmp_path):
 
 
 @pytest.mark.skipif(not HAVE_GO, reason="go toolchain not installed")
+def test_go_unexported_redactor_is_reachable(tmp_path):
+    """Idiomatic Go keeps redaction helpers PACKAGE-PRIVATE, so a driver in its own
+    package cannot call them. Measured on a real fleet: 11 of 12 redactors written
+    by an automated remediator were unexported, and every one came back
+    `redactor_errored: go build failed` — i.e. the tool was blind to ~92% of the
+    population it was pointed at.
+
+    Both pre-existing Go fixtures used `func Mask` (exported), which is why this
+    gap survived. The producer now falls back to an IN-PACKAGE test driver.
+    """
+    (tmp_path / "go.mod").write_text("module example.test/fixture\n\ngo 1.21\n")
+    pkg = tmp_path / "redact"
+    pkg.mkdir()
+    # lowercase = unexported: invisible to any other package
+    (pkg / "redact.go").write_text(
+        "package redact\n\nfunc mask(s string) string {\n\treturn s\n}\n")
+    entry = {"lang": "go", "module": "redact",
+             "import": "example.test/fixture/redact", "fn": "mask", "kind": "value"}
+    defect, out = _run_one(tmp_path, entry, Probe("p", "test1234", "test1234"))
+    assert out == "test1234"
+    assert defect and defect.klass in (oracles.LITERAL_SURVIVAL,
+                                       oracles.NOOP_PASSTHROUGH)
+
+
+@pytest.mark.skipif(not HAVE_GO, reason="go toolchain not installed")
+def test_go_unexported_strong_redactor_clean(tmp_path):
+    """The in-package path must also produce a TRUE NEGATIVE, not just find faults."""
+    (tmp_path / "go.mod").write_text("module example.test/fixture\n\ngo 1.21\n")
+    pkg = tmp_path / "redact"
+    pkg.mkdir()
+    (pkg / "redact.go").write_text(
+        'package redact\n\nfunc mask(s string) string {\n\treturn "<redacted>"\n}\n')
+    entry = {"lang": "go", "module": "redact",
+             "import": "example.test/fixture/redact", "fn": "mask", "kind": "value"}
+    defect, out = _run_one(tmp_path, entry,
+                           Probe("p", "test1234", "test1234", secret_space=["test1234"]))
+    assert out == "<redacted>"
+    assert defect is None
+
+
+@pytest.mark.skipif(not HAVE_GO, reason="go toolchain not installed")
+def test_go_unexported_leaves_no_driver_behind(tmp_path):
+    """The in-package driver is written INTO the target's source tree, so failing to
+    remove it would leave a stray _test.go in someone's repo."""
+    (tmp_path / "go.mod").write_text("module example.test/fixture\n\ngo 1.21\n")
+    pkg = tmp_path / "redact"
+    pkg.mkdir()
+    (pkg / "redact.go").write_text(
+        "package redact\n\nfunc mask(s string) string {\n\treturn s\n}\n")
+    entry = {"lang": "go", "module": "redact",
+             "import": "example.test/fixture/redact", "fn": "mask", "kind": "value"}
+    _run_one(tmp_path, entry, Probe("p", "test1234", "test1234"))
+    strays = list(pkg.glob("*scrufflehog*"))
+    assert strays == [], f"driver left behind: {strays}"
+
+
+@pytest.mark.skipif(not HAVE_GO, reason="go toolchain not installed")
+def test_go_internal_package_is_reachable(tmp_path):
+    """A SECOND reason the external driver fails, and it has nothing to do with
+    export: Go's `internal/` rule forbids the import outright ("use of internal
+    package ... not allowed"), so even an EXPORTED redactor under internal/ is
+    unreachable. Measured on a real fleet — this is what blocked
+    movements-command's `internal/service/config`. The in-package driver answers
+    both cases."""
+    (tmp_path / "go.mod").write_text("module example.test/fixture\n\ngo 1.21\n")
+    pkg = tmp_path / "internal" / "redact"
+    pkg.mkdir(parents=True)
+    # EXPORTED, but under internal/ — still unreachable externally.
+    (pkg / "redact.go").write_text(
+        "package redact\n\nfunc Mask(s string) string {\n\treturn s\n}\n")
+    entry = {"lang": "go", "module": "internal/redact",
+             "import": "example.test/fixture/internal/redact",
+             "fn": "Mask", "kind": "value"}
+    defect, out = _run_one(tmp_path, entry, Probe("p", "test1234", "test1234"))
+    assert out == "test1234"
+    assert defect and defect.klass in (oracles.LITERAL_SURVIVAL,
+                                       oracles.NOOP_PASSTHROUGH)
+
+
+@pytest.mark.skipif(not HAVE_GO, reason="go toolchain not installed")
 def test_go_strong_redactor_clean(tmp_path):
     (tmp_path / "go.mod").write_text("module example.test/fixture\n\ngo 1.21\n")
     pkg = tmp_path / "redact"
